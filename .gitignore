@@ -1,0 +1,4 @@
+﻿.vs
+*.spv
+VulkanTest/x64
+x64
