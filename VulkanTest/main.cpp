@@ -740,6 +740,9 @@ private:
         auto texHeight1D = 1u;
         auto texelWidth = 1u;
         auto imageSize1D = texWidth1D * texHeight1D * texelWidth;
+        auto texWidth3D = 64u;
+        auto texHeight3D = 2u;
+        auto imageSize3D = texWidth1D * texHeight1D * texelWidth;
 
         unsigned char rawData[4096];
         for (auto i = 0u; i < 256; ++i)
@@ -747,9 +750,13 @@ private:
             rawData[i] = static_cast<unsigned char>(i);
         }
 
+        ////////////////////////////////////////////////////////////////////////////////
+        // upload buffer
+        ////////////////////////////////////////////////////////////////////////////////
+
         VkBuffer stagingBuffer;
         VkDeviceMemory stagingBufferMemory;
-        createBuffer(imageSize1D, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+        createBuffer(4096, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
         void* data;
         vkMapMemory(device, stagingBufferMemory, 0, imageSize1D, 0, &data);
@@ -757,9 +764,12 @@ private:
         vkUnmapMemory(device, stagingBufferMemory);
 
 
+        ////////////////////////////////////////////////////////////////////////////////
+        // 1d texture
+        ////////////////////////////////////////////////////////////////////////////////
         VkImageCreateInfo imageInfo{};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.imageType = VK_IMAGE_TYPE_1D;
         imageInfo.extent.width = texWidth1D;
         imageInfo.extent.height = texHeight1D;
         imageInfo.extent.depth = 1;
@@ -794,38 +804,108 @@ private:
 
         vkBindImageMemory(device, textureImage1D, textureImageMemory1D, 0);
 
+        ////////////////////////////////////////////////////////////////////////////////
+        // 3d texture
+        ////////////////////////////////////////////////////////////////////////////////
+
+        VkImageCreateInfo imageInfo3D{};
+        imageInfo3D.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo3D.imageType = VK_IMAGE_TYPE_3D;
+        imageInfo3D.extent.width = texWidth3D;
+        imageInfo3D.extent.height = texHeight3D;
+        imageInfo3D.extent.depth = 1;
+        imageInfo3D.mipLevels = 1;
+        imageInfo3D.arrayLayers = 1;
+        imageInfo3D.format = VK_FORMAT_R8_UINT;
+        imageInfo3D.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageInfo3D.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        imageInfo3D.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        imageInfo3D.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo3D.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        VkImage textureImage3D;
+        VkDeviceMemory textureImageMemory3D;
+
+
+        if (vkCreateImage(device, &imageInfo3D, nullptr, &textureImage3D) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create image!");
+        }
+
+        vkGetImageMemoryRequirements(device, textureImage3D, &memRequirements);
+
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = memRequirements.size;
+        allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+        if (vkAllocateMemory(device, &allocInfo, nullptr, &textureImageMemory3D) != VK_SUCCESS) {
+            throw std::runtime_error("failed to allocate image memory!");
+        }
+
+        vkBindImageMemory(device, textureImage3D, textureImageMemory3D, 0);
+        ////////////////////////////////////////////////////////////////////////////////
+        // image copying
+        ////////////////////////////////////////////////////////////////////////////////
         transitionImageLayout(textureImage1D, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         copyBufferToImage(stagingBuffer, textureImage1D, static_cast<uint32_t>(texWidth1D), static_cast<uint32_t>(texHeight1D));
 
         transitionImageLayout(textureImage1D, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
+        transitionImageLayout(textureImage3D, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+        {
+            VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+            VkImageCopy region = {};
+            region.extent.depth = 1;
+            region.extent.width = texWidth3D;
+            region.extent.height = 1;
+            region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.srcSubresource.layerCount = 1;
+            region.dstSubresource.layerCount = 1;
+
+            vkCmdCopyImage(commandBuffer, textureImage1D, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, textureImage3D, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+
+            endSingleTimeCommands(commandBuffer);
+        }
+
+        transitionImageLayout(textureImage3D, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+
+        ////////////////////////////////////////////////////////////////////////////////
+        // readback
+        ////////////////////////////////////////////////////////////////////////////////
+
         VkBuffer readbackBuffer;
         VkDeviceMemory readbackBufferMemory;
-        createBuffer(imageSize1D, VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, readbackBuffer, readbackBufferMemory);
+        createBuffer(4096, VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, readbackBuffer, readbackBufferMemory);
 
-        VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+        {
+            VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
-        VkBufferImageCopy region{};
-        region.bufferOffset = 0;
-        region.bufferRowLength = 0;
-        region.bufferImageHeight = 0;
-        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        region.imageSubresource.mipLevel = 0;
-        region.imageSubresource.baseArrayLayer = 0;
-        region.imageSubresource.layerCount = 1;
-        region.imageOffset = { 0, 0, 0 };
-        region.imageExtent = {
-            texWidth1D,
-            texHeight1D,
-            1
-        };
+            VkBufferImageCopy region{};
+            region.bufferOffset = 0;
+            region.bufferRowLength = 0;
+            region.bufferImageHeight = 0;
+            region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.imageSubresource.mipLevel = 0;
+            region.imageSubresource.baseArrayLayer = 0;
+            region.imageSubresource.layerCount = 1;
+            region.imageOffset = { 0, 0, 0 };
+            region.imageExtent = {
+                texWidth3D,
+                texHeight3D,
+                1
+            };
 
-        vkCmdCopyImageToBuffer(commandBuffer, textureImage1D, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readbackBuffer, 1, &region);
+            vkCmdCopyImageToBuffer(commandBuffer, textureImage3D, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readbackBuffer, 1, &region);
 
-        endSingleTimeCommands(commandBuffer);
+            endSingleTimeCommands(commandBuffer);
+        }
 
         void* resultData;
-        vkMapMemory(device, readbackBufferMemory, 0, imageSize1D, 0, &resultData);
+        vkMapMemory(device, readbackBufferMemory, 0, 4096, 0, &resultData);
         vkUnmapMemory(device, stagingBufferMemory);
 
     }
