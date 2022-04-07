@@ -150,18 +150,6 @@
   <ItemGroup>
     <ClCompile Include="main.cpp" />
   </ItemGroup>
-  <ItemGroup>
-    <CustomBuild Include="shaders\18_shader_vertexbuffer.frag">
-      <FileType>Document</FileType>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\VulkanSDK\1.3.204.0\Bin\glslc.exe shaders\18_shader_vertexbuffer.frag -o shaders/frag.spv</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">shaders/frag.spv</Outputs>
-    </CustomBuild>
-    <CustomBuild Include="shaders\18_shader_vertexbuffer.vert">
-      <FileType>Document</FileType>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\VulkanSDK\1.3.204.0\Bin\glslc.exe shaders\18_shader_vertexbuffer.vert -o shaders/vert.spv</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">shaders/vert.spv</Outputs>
-    </CustomBuild>
-  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
